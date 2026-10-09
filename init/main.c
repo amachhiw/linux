@@ -1665,12 +1665,14 @@ static noinline void __init kernel_init_freeable(void)
 	lockup_detector_init();
 
 	smp_init();
+	AMAC_DUMP_FREE("after smp_init");
 	sched_init_smp();
 
 	workqueue_init_topology();
 	async_init();
 	padata_init();
 	page_alloc_init_late();
+	AMAC_DUMP_FREE("after page_alloc_init_late");
 
 	do_basic_setup();
 

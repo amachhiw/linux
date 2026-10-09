@@ -4161,6 +4161,17 @@ static inline void show_mem(void)
 	__show_mem(0, NULL, MAX_NR_ZONES - 1);
 }
 extern long si_mem_available(void);
+/* amac debug: snapshot of the free-page pool, printed only during boot */
+#define AMAC_DUMP_FREE(tag)						\
+do {									\
+	if (system_state != SYSTEM_RUNNING)				\
+		pr_info("amac: %s:%d FREE@%s state=%d free=%lu managed=%lu totalram=%lu first_deferred_pfn=0x%lx\n", \
+			__func__, __LINE__, tag, system_state,		\
+			global_zone_page_state(NR_FREE_PAGES),		\
+			zone_managed_pages(&NODE_DATA(0)->node_zones[ZONE_NORMAL]), \
+			totalram_pages(),				\
+			NODE_DATA(0)->first_deferred_pfn);		\
+} while (0)
 extern void si_meminfo(struct sysinfo * val);
 extern void si_meminfo_node(struct sysinfo *val, int nid);
 

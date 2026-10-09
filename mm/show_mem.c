@@ -67,6 +67,11 @@ long si_mem_available(void)
 	reclaimable -= min(reclaimable / 2, wmark_low);
 	available += reclaimable;
 
+	if (system_state == SYSTEM_BOOTING)
+		pr_info("amac: %s:%d: free=%lu totalreserve=%lu wmark_low=%lu pagecache=%lu reclaimable=%lu avail=%ld\n",
+			__func__, __LINE__, global_zone_page_state(NR_FREE_PAGES), totalreserve_pages,
+			wmark_low, pagecache, reclaimable, available);
+
 	if (available < 0)
 		available = 0;
 	return available;

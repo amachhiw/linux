@@ -2436,6 +2436,21 @@ static void *ring_buffer_desc_page(struct ring_buffer_desc *desc, unsigned int p
 	return page_id >= desc->nr_page_va ? NULL : (void *)desc->page_va[page_id];
 }
 
+/*
+ * amac debug knob (boot param "amac_bypass=N"):
+ *   0 (default): unchanged behaviour
+ *   1: skip the si_mem_available() check while system_state == SYSTEM_BOOTING
+ *      (this is what the proposed fix does)
+ *   2: skip the check in every system_state (see if allocator itself copes)
+ */
+static int amac_bypass;
+static int amac_nfail;
+static int __init amac_bypass_setup(char *s)
+{
+	return kstrtoint(s, 0, &amac_bypass);
+}
+early_param("amac_bypass", amac_bypass_setup);
+
 static int __rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
 			       unsigned long nr_pages, struct list_head *pages)
 {
@@ -2446,6 +2461,8 @@ static int __rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
 	struct ring_buffer_desc *desc = NULL;
 	long i;
 
+	pr_info("amac: %s:%d -> %s\n", __func__, __LINE__, __func__);
+	pr_info("amac: %s:%d nr_pages=0x%lx\n", __func__, __LINE__, nr_pages);
 	/*
 	 * Check if the available memory is there first.
 	 * Note, si_mem_available() only gives us a rough estimate of available
@@ -2453,9 +2470,32 @@ static int __rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
 	 * to prevent doing any allocation when it is obvious that it is
 	 * not going to succeed.
 	 */
+#ifdef CONFIG_DEFERRED_STRUCT_PAGE_INIT
+	pr_info("amac: %s:%d state=%d cpu=%d buf_cpu=%d managed=%lu present=%lu first_deferred_pfn=0x%lx PAGES_PER_SECTION=%lu\n",
+		__func__, __LINE__, system_state, raw_smp_processor_id(),
+		cpu_buffer->cpu,
+		zone_managed_pages(&NODE_DATA(0)->node_zones[ZONE_NORMAL]),
+		NODE_DATA(0)->node_zones[ZONE_NORMAL].present_pages,
+		NODE_DATA(0)->first_deferred_pfn,
+		(unsigned long)PAGES_PER_SECTION);
+#endif
 	i = si_mem_available();
-	if (i < nr_pages)
-		return -ENOMEM;
+	if (i < nr_pages) {
+		if (amac_nfail++ < 4)
+			dump_stack();
+		pr_info("amac: %s:%d FAILURE state=%d i=%ld nr_pages=0x%lx bypass=%d\n",
+			__func__, __LINE__, system_state, i, nr_pages, amac_bypass);
+		if (amac_bypass == 2 ||
+		    (amac_bypass == 1 && system_state == SYSTEM_BOOTING)) {
+			pr_info("amac: %s:%d BYPASSING check, trying real allocation\n",
+				__func__, __LINE__);
+		} else {
+			pr_info("amac: %s:%d <- %s\n", __func__, __LINE__, __func__);
+			return -ENOMEM;
+		}
+	}
+	pr_info("amac: %s:%d SUCCESS i=%ld nr_pages=0x%lx\n",
+		__func__, __LINE__, i, nr_pages);
 
 	/*
 	 * If a user thread allocates too much, and si_mem_available()
@@ -2542,12 +2582,18 @@ free_pages:
 static int rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
 			     unsigned long nr_pages)
 {
+	pr_info("amac: %s:%d -> %s\n", __func__, __LINE__, __func__);
 	LIST_HEAD(pages);
 
 	WARN_ON(!nr_pages);
 
-	if (__rb_allocate_pages(cpu_buffer, nr_pages, &pages))
+	pr_info("amac: %s:%d -> nr_page=0x%lx\n", __func__, __LINE__, nr_pages);
+	if (__rb_allocate_pages(cpu_buffer, nr_pages, &pages)) {
+		pr_info("amac: %s:%d Came here. nr_pages=0x%lx. returning -ENOMEM\n",
+			__func__, __LINE__, nr_pages);
+		pr_info("amac: %s:%d <- %s\n", __func__, __LINE__, __func__);
 		return -ENOMEM;
+	}
 
 	/*
 	 * The ring buffer page list is a circular list that does not
@@ -2561,6 +2607,7 @@ static int rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
 
 	rb_check_pages(cpu_buffer);
 
+	pr_info("amac: %s:%d <- %s\n", __func__, __LINE__, __func__);
 	return 0;
 }
 
@@ -2573,6 +2620,8 @@ rb_allocate_cpu_buffer(struct trace_buffer *buffer, unsigned long nr_pages, int 
 	struct buffer_page *bpage;
 	int ret;
 
+	pr_info("amac: %s:%d -> %s\n", __func__, __LINE__, __func__);
+	pr_info("amac: %s:%d nr_pages=0x%lx\n", __func__, __LINE__, nr_pages);
 	if (!cpu_buffer)
 		return NULL;
 
@@ -2644,9 +2693,12 @@ rb_allocate_cpu_buffer(struct trace_buffer *buffer, unsigned long nr_pages, int 
 	INIT_LIST_HEAD(&cpu_buffer->reader_page->list);
 	INIT_LIST_HEAD(&cpu_buffer->new_pages);
 
+	pr_info("amac: %s:%d nr_pages=0x%lx\n", __func__, __LINE__, nr_pages);
 	ret = rb_allocate_pages(cpu_buffer, nr_pages);
-	if (ret < 0)
+	if (ret < 0) {
+		pr_info("amac: %s:%d came here, nr_pages=0x%lx\n", __func__, __LINE__, nr_pages);
 		goto fail_free_reader;
+	}
 
 	rb_meta_validate_events(cpu_buffer);
 
@@ -2684,6 +2736,7 @@ rb_allocate_cpu_buffer(struct trace_buffer *buffer, unsigned long nr_pages, int 
 	kfree(cpu_buffer->subbuf_ids);
 	free_buffer_page(cpu_buffer->reader_page);
 
+	pr_info("amac: %s:%d <- %s\n", __func__, __LINE__, __func__);
 	return NULL;
 }
 
@@ -8084,6 +8137,8 @@ int trace_rb_cpu_prepare(unsigned int cpu, struct hlist_node *node)
 	int cpu_i;
 	unsigned long nr_pages;
 
+	pr_info("amac: %s:%d -> %s\n", __func__, __LINE__, __func__);
+
 	buffer = container_of(node, struct trace_buffer, node);
 	if (cpumask_test_cpu(cpu, buffer->cpumask))
 		return 0;
@@ -8103,11 +8158,14 @@ int trace_rb_cpu_prepare(unsigned int cpu, struct hlist_node *node)
 	/* allocate minimum pages, user can later expand it */
 	if (!nr_pages_same)
 		nr_pages = 2;
+	pr_info("amac: %s:%d nr_pages=0x%lx\n", __func__, __LINE__, nr_pages);
 	buffer->buffers[cpu] =
 		rb_allocate_cpu_buffer(buffer, nr_pages, cpu);
 	if (!buffer->buffers[cpu]) {
 		WARN(1, "failed to allocate ring buffer on CPU %u\n",
 		     cpu);
+		pr_info("amac: %s:%d <- %s. returning -ENOMEM\n", __func__,
+			__LINE__, __func__);
 		return -ENOMEM;
 	}
 

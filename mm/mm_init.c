@@ -2152,6 +2152,18 @@ bool __init deferred_grow_zone(struct zone *zone, unsigned int order)
 
 	pgdat_resize_unlock(pgdat, &flags);
 
+	{
+		static int amac_n;
+
+		pr_info("amac: %s:%d grow_zone #%d state=%d order=%u first_deferred_pfn 0x%lx -> 0x%lx got=%lu free=%lu\n",
+			__func__, __LINE__,
+			amac_n, system_state, order, first_deferred_pfn,
+			pgdat->first_deferred_pfn, nr_pages,
+			global_zone_page_state(NR_FREE_PAGES));
+		if (amac_n++ < 8)
+			dump_stack();
+	}
+
 	return nr_pages > 0;
 }
 
@@ -2668,8 +2680,11 @@ void __init mm_core_init(void)
 	kho_memory_init();
 
 	memblock_free_all();
+	AMAC_DUMP_FREE("after memblock_free_all");
 	mem_init();
+	AMAC_DUMP_FREE("after mem_init");
 	kmem_cache_init();
+	AMAC_DUMP_FREE("after kmem_cache_init");
 	/*
 	 * page_owner must be initialized after buddy is ready, and also after
 	 * slab is ready so that stack_depot_init() works properly
@@ -2679,7 +2694,9 @@ void __init mm_core_init(void)
 	ptlock_cache_init();
 	pgtable_cache_init();
 	debug_objects_mem_init();
+	AMAC_DUMP_FREE("before vmalloc_init");
 	vmalloc_init();
+	AMAC_DUMP_FREE("after vmalloc_init");
 	/* If no deferred init page_ext now, as vmap is fully initialized */
 	if (!deferred_struct_pages)
 		page_ext_init();
@@ -2690,4 +2707,5 @@ void __init mm_core_init(void)
 	kmsan_init_runtime();
 	mm_cache_init();
 	execmem_init();
+	AMAC_DUMP_FREE("end of mm_core_init");
 }

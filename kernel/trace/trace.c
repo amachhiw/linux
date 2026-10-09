@@ -8543,6 +8543,7 @@ static int allocate_trace_buffers(struct trace_array *tr, unsigned long size)
 	if (ret)
 		return ret;
 
+	AMAC_DUMP_FREE("after array_buffer");
 	ret = trace_allocate_snapshot(tr, size);
 	if (MEM_FAIL(ret, "Failed to allocate trace buffer\n"))
 		free_trace_buffer(&tr->array_buffer);
@@ -9940,7 +9941,9 @@ __init static int tracer_alloc_buffers(void)
 		goto out_free_cpumask;
 	/* Used for event triggers */
 	ret = -ENOMEM;
+	AMAC_DUMP_FREE("before temp_buffer");
 	temp_buffer = ring_buffer_alloc(PAGE_SIZE, RB_FL_OVERWRITE);
+	AMAC_DUMP_FREE("after temp_buffer");
 	if (!temp_buffer)
 		goto out_rm_hp_state;
 
@@ -9951,7 +9954,9 @@ __init static int tracer_alloc_buffers(void)
 		goto out_free_savedcmd;
 
 	/* TODO: make the number of buffers hot pluggable with CPUS */
+	AMAC_DUMP_FREE("before trace_buffers");
 	if (allocate_trace_buffers(&global_trace, ring_buf_size) < 0) {
+		AMAC_DUMP_FREE("trace_buffers FAILED");
 		MEM_FAIL(1, "tracer: failed to allocate ring buffer!\n");
 		goto out_free_pipe_cpumask;
 	}
